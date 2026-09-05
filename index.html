@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>UNI 자금 — 폰 사본</title>
+<meta name="theme-color" content="#16325C">
+<link rel="manifest" href="manifest.json">
+<style>
+:root{--bg:#0E1A31;--card:#17264a;--line:#2a3a63;--ink:#fff;--dim:#9fb0d0;
+      --in:#4FD1A5;--out:#FF8A80;--warn:#FFC48A;--danger:#FF6B6B}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);padding:14px 14px 40px;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+h1{font-size:17px;margin:0 0 2px;letter-spacing:-.02em}
+.sub{font-size:12px;color:var(--dim);margin:0 0 14px;line-height:1.6}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 11px}
+.card h2{font-size:13px;margin:0 0 10px;color:var(--dim);font-weight:700}
+.big{font-size:27px;font-weight:800;letter-spacing:-.02em}
+.row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.row:last-child{border-bottom:0}
+.row .l{color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .v{font-weight:700;white-space:nowrap}
+.in{color:var(--in)} .out{color:var(--out)} .warn{color:var(--warn)} .danger{color:var(--danger)}
+input,button{font:inherit}
+input{width:100%;padding:13px;border-radius:11px;border:1px solid var(--line);
+  background:#0b1428;color:#fff;margin:8px 0}
+button{width:100%;padding:13px;border-radius:11px;border:0;background:#2F6BFF;color:#fff;
+  font-weight:700;cursor:pointer}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim);margin-top:8px}
+.stamp{background:rgba(255,196,138,.13);border:1px solid rgba(255,196,138,.35);
+  border-radius:11px;padding:10px 12px;font-size:12.5px;line-height:1.65;color:var(--warn);margin:0 0 12px}
+.msg{font-size:13px;margin-top:10px;min-height:18px}
+.bad{color:var(--danger)}
+.hide{display:none}
+.tag{font-size:11px;padding:2px 7px;border-radius:6px;background:#22345f;color:var(--dim);margin-left:6px}
+</style>
+</head>
+<body>
+
+<div id="lock">
+  <h1>UNI 자금 — 폰 사본</h1>
+  <p class="sub">사무실 PC 가 꺼져 있어도 볼 수 있는 <b>읽기 전용</b> 사본입니다.<br>
+     자료는 잠겨 있고, 여는 열쇠는 이 페이지 어디에도 없습니다.</p>
+  <div class="card">
+    <h2>열쇠</h2>
+    <input id="pw" type="password" placeholder="사본 열쇠" autocomplete="current-password"
+           enterkeyhint="go" autocapitalize="off" autocorrect="off">
+    <button id="go">열기</button>
+    <div class="msg" id="msg"></div>
+    <p class="sub" style="margin:12px 0 0;font-size:11.5px">
+      열 때마다 여쭙습니다. 이 자리는 다른 앱과 <b>같은 출처</b>라, 기기에 담아 두면
+      그 앱도 읽을 수 있습니다 — 담지 않는 편이 맞습니다.</p>
+  </div>
+</div>
+
+<div id="app" class="hide"></div>
+
+<script>
+/* 파이썬(app/snapshot_crypto.py)이 잠근 것을 여기서 연다.
+   짜맞춤이 바이트까지 같아야 한다 — 한쪽만 고치면 조용히 안 열린다.
+     [0:8] 매직 UNICF + 0 + 판 + 예비   [8:12] 반복(uint32 BE)
+     [12:28] 소금   [28:40] 논스   [40:] AES-256-GCM(원문 = gzip 한 JSON)
+   머리글 40바이트는 추가 인증 자료(AAD)다 — 반복 횟수를 낮춰 바꿔치기하면 태그가 깨진다. */
+const MAGIC = [85,78,73,67,70,0];
+/* ★ 열쇠를 **기기에 담지 않는다** (2026-08-19 지시: "다른 앱이랑 주소 겹치지 않게 해
+   절대 안돼"). 이 페이지는 GitHub Pages 라 주소가 `mulder4780.github.io` 이고,
+   그 출처에는 **쿠팡 업무센터도 산다**(실측: 그 앱이 `csos_pin` 을 같은 자리에 담는다).
+   브라우저는 출처가 같으면 localStorage 를 통째로 나눠 쓰므로, 여기에 담은 열쇠는
+   **저쪽 페이지가 그대로 읽을 수 있다.** 경로가 다른 것은 아무 벽이 못 된다.
+   그래서 열쇠는 메모리에만 두고 창을 닫으면 사라진다 — 열 때마다 여쭙는 이유다.
+   ★ 편하게 하려면 담는 것이 아니라 **출처를 갈라야** 한다(제 도메인 등). */
+const $ = s => document.querySelector(s);
+const won = n => (n==null||isNaN(n)) ? "—" : Number(n).toLocaleString("ko-KR") + "원";
+const esc = s => String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function unseal(buf, pass){
+  const b = new Uint8Array(buf);
+  if (b.length < 40) throw new Error("사본 파일이 너무 짧습니다");
+  for (let i=0;i<6;i++) if (b[i]!==MAGIC[i]) throw new Error("이 파일은 UNI 자금 사본이 아닙니다");
+  if (b[6] !== 1) throw new Error("이 화면이 모르는 판입니다 — 앱을 새로 받아 주세요");
+  const iter  = new DataView(buf).getUint32(8, false);
+  const salt  = b.slice(12,28), nonce = b.slice(28,40), head = b.slice(0,40), ct = b.slice(40);
+  const base  = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass),
+                                              "PBKDF2", false, ["deriveKey"]);
+  const key   = await crypto.subtle.deriveKey(
+      {name:"PBKDF2", salt: salt, iterations: iter, hash:"SHA-256"},
+      base, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({name:"AES-GCM", iv: nonce, additionalData: head}, key, ct);
+  /* gzip 을 푼다. DecompressionStream 이 없는 옛 브라우저는 여기서 솔직히 멈춘다 —
+     조용히 빈 화면을 주는 것보다 낫다. */
+  if (typeof DecompressionStream !== "function")
+    throw new Error("이 브라우저가 오래되어 사본을 풀 수 없습니다 (크롬·사파리 최신판을 써 주세요)");
+  const ds = new DecompressionStream("gzip");
+  const txt = await new Response(new Blob([plain]).stream().pipeThrough(ds)).text();
+  return JSON.parse(txt);
+}
+
+function ago(iso){
+  const t = new Date(String(iso).replace(" ","T"));
+  const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 1) return "방금";
+  if (m < 60) return m + "분 전";
+  const h = Math.floor(m/60);
+  if (h < 24) return h + "시간 " + (m%60) + "분 전";
+  return Math.floor(h/24) + "일 " + (h%24) + "시간 전";
+}
+
+/* 사본을 **만든 때**와 그 안의 자료가 **어디까지인지**는 다른 사실이다.
+   뭉치면 "2분 전 기준" 이라 말하면서 열흘 전 숫자를 보여 준다 — 밖에서 보는
+   화면이라 더 위험하다. 판정은 PC 가 해서 실어 준다(여기서 다시 세지 않는다). */
+function dataStamp(m){
+  const thru = m.자료기준;
+  if (!thru) return '<br>※ 이 숫자가 <b>언제까지의 자료</b>인지 확인하지 못했습니다.';
+  if (m.자료갈래 === "ok") return '<br>실적 자료 <b>' + esc(String(thru)) + '</b> 까지 반영';
+  return '<br><b>※ 실적 자료는 ' + esc(String(thru)) + ' 까지입니다</b> — '
+       + esc(String(m.자료비었나)) + '영업일 비었습니다. '
+       + '그 뒤 숫자는 실적이 아니라 <b>예정</b>입니다.';
+}
+
+function render(d){
+  const m = d._meta || {}, dash = d.dashboard || {}, names = d.names || {};
+  const old = (Date.now() - new Date(String(m.기준시각).replace(" ","T")).getTime()) > 6*3600*1000;
+
+  /* 지연·임박 수금 — 폰에서 제일 자주 보시는 것 */
+  const rc = (d.receivables || []).filter(r => !r.actual_collection_date);
+  const overdue = rc.filter(r => r.status === "OVERDUE");
+  const late = overdue.slice().sort((a,b) => (b.receivable_amount||0) - (a.receivable_amount||0)).slice(0, 8);
+  const lateSum = overdue.reduce((s,r) => s + (r.receivable_amount||0), 0);
+
+  const al = (d.alerts || []);
+  const short = ((d.forecast||{}).days || []).find(x => (x.expected_close != null && x.expected_close < 0));
+
+  $("#app").innerHTML =
+    '<h1>UNI 자금 <span class="tag">읽기 전용 사본</span></h1>' +
+    '<p class="sub">고치기·등록은 사무실 PC 앱에서만 됩니다.</p>' +
+
+    '<div class="stamp"><b>' + esc(String(m.기준시각 || "?").replace("T"," ")) + '</b> 에 만든 사본 — ' + ago(m.기준시각) +
+      (old ? '<br><b>※ PC 에서 6시간 넘게 새 사본이 안 왔습니다.</b> PC 가 꺼져 있거나 인터넷이 끊긴 것일 수 있습니다 — 그 사이 바뀐 것은 여기 없습니다.' : '') +
+      dataStamp(m) +
+      '<br>PC 가 켜져 있는 동안 자동으로 새로 만들어집니다.</div>' +
+
+    '<div class="card"><h2>지금 잔액</h2>' +
+      '<div class="big">' + won(dash.balance_now) + '</div>' +
+      '<div class="row"><span class="l">오늘 예상 마감</span><span class="v">' + won(dash.today_close_expected) + '</span></div>' +
+      '<div class="row"><span class="l">오늘 예정 입금</span><span class="v in">' + won(dash.today_in_expected) + '</span></div>' +
+      '<div class="row"><span class="l">오늘 예정 출금</span><span class="v out">' + won(dash.today_out_expected) + '</span></div>' +
+      '<div class="row"><span class="l">실측 확정일</span><span class="v">' + esc(dash.last_anchor || "—") + '</span></div>' +
+    '</div>' +
+
+    (short ? '<div class="card"><h2>자금 부족 예상</h2>' +
+      '<div class="big danger">' + esc(short.date) + '</div>' +
+      '<div class="row"><span class="l">그날 예상 잔액</span><span class="v danger">' + won(short.expected_close) + '</span></div></div>' : '') +
+
+    '<div class="card"><h2>확인이 필요한 것 ' + al.length + '건</h2>' +
+      (al.length ? al.map(a =>
+        '<div class="row"><span class="l ' + (a.severity==="danger"?"danger":a.severity==="warn"?"warn":"") + '">' +
+        esc(a.title) + '</span><span class="v" style="font-weight:400;color:var(--dim)">' +
+        esc(String(a.ts||"").slice(5,10)) + '</span></div>').join("")
+        : '<div class="row"><span class="l">없습니다</span></div>') +
+    '</div>' +
+
+    '<div class="card"><h2>지연된 수금 — 합 ' + won(lateSum) + '</h2>' +
+      (late.length ? late.map(r =>
+        '<div class="row"><span class="l">' + esc(names[r.counterparty_id] || r.item || "거래처") +
+        ' <span style="color:var(--dim);font-size:12px">' + esc(r.expected_collection_date||"") + '</span></span>' +
+        '<span class="v">' + won(r.receivable_amount) + '</span></div>').join("")
+        : '<div class="row"><span class="l">없습니다</span></div>') +
+    '</div>' +
+
+    '<div class="card"><h2>정산 확인 필요</h2>' +
+      '<div class="row"><span class="l">입금</span><span class="v in">' + won(dash.unsettled_in) + '</span></div>' +
+      '<div class="row"><span class="l">출금</span><span class="v out">' + won(dash.unsettled_out) + '</span></div>' +
+    '</div>' +
+
+    '<button class="ghost" id="live">사무실 PC 앱 열기 (켜져 있을 때만)</button>' +
+    '<button class="ghost" id="lockit">잠그기</button>';
+
+  $("#lock").classList.add("hide");
+  $("#app").classList.remove("hide");
+  $("#live").onclick = function(){ location.href = "https://mulder.tailf14aae.ts.net:10000"; };
+  $("#lockit").onclick = function(){ location.reload(); };
+}
+
+async function openSnapshot(pass){
+  $("#msg").textContent = "여는 중…"; $("#msg").className = "msg";
+  try{
+    const r = await fetch("data.enc?t=" + Date.now(), {cache:"no-store"});
+    if(!r.ok) throw new Error("사본을 받지 못했습니다 (HTTP " + r.status + ")");
+    const d = await unseal(await r.arrayBuffer(), pass);
+    render(d);
+  }catch(e){
+    /* 열쇠가 틀린 것과 사본을 못 받은 것은 고칠 자리가 다르다 — 갈라 말한다. */
+    const wrong = (e && (e.name === "OperationError" || e instanceof DOMException));
+    $("#msg").className = "msg bad";
+    $("#msg").textContent = wrong ? "열쇠가 맞지 않습니다." : (e.message || String(e));
+  }
+}
+
+$("#go").onclick = function(){ openSnapshot($("#pw").value); };
+$("#pw").addEventListener("keydown", function(e){ if(e.key === "Enter") $("#go").click(); });
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function(){});
+</script>
+</body>
+</html>
