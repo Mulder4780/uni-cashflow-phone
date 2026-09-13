@@ -1,0 +1,16 @@
+{
+  "name": "UNI 자금 — 폰 사본",
+  "short_name": "UNI 자금",
+  "description": "사무실 PC 가 꺼져 있어도 보는 읽기 전용 자금 현황 사본",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0E1A31",
+  "theme_color": "#16325C",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
